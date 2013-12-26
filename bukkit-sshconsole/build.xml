@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project name="bukkit-SshConsole" default="dist" basedir=".">
+
+	<property name="project" value="SshConsole"/>
+    <property name="version" value="0.1"/>
+    <property name="src" value="src"/>
+	<property name="build" value="build"/>
+    <property name="dist"  value="dist"/>
+    <property name="lib"  value="lib"/>
+
+	<path id="that-classpath">
+	        <pathelement location="${src}"/>
+	        <pathelement location="${build}"/>
+		<fileset dir="${lib}">
+	            <include name="**/*.jar"/>
+	        </fileset>
+	</path>	
+	
+  <target name="init">
+    <buildnumber/>
+    <mkdir dir="${build}"/>
+  </target>
+
+  <target name="compile" depends="init">
+    <javac srcdir="${src}" destdir="${build}" classpathref="that-classpath" target="1.5"/>
+  </target>
+
+  <target name="dist" depends="compile">
+    <mkdir dir="${dist}"/>
+	
+  	<unzip dest="${build}">
+		<fileset dir="${lib}">
+			<include name="*.jar" />
+		</fileset>    
+	</unzip>
+  	
+  	<deltree dir="${build}/META-INF"/>
+  	
+  	<copy file="plugin.yml.tmpl" tofile="${build}/plugin.yml" />
+  	<replace file="${build}/plugin.yml" token="@VERSION@" value="${version}.${build.number}"/>
+
+  	<jar jarfile="${dist}/${project}-${version}.${build.number}.jar" >
+    	<fileset dir="${build}"/>
+    </jar>
+    <delete dir="${build}"/>
+  </target>
+
+</project>
