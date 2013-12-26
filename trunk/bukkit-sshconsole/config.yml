@@ -1,0 +1,5 @@
+public-admin: false
+force-nio2: false
+port: 25522
+user:
+  admin-user: s3cr3t-password
