@@ -39,7 +39,7 @@
   	<copy file="plugin.yml.tmpl" tofile="${build}/plugin.yml" />
   	<replace file="${build}/plugin.yml" token="@VERSION@" value="${version}.${build.number}"/>
 
-  	<jar jarfile="${dist}/${project}-${version}.${build.number}.jar" >
+    <jar jarfile="${dist}/${project}-${version}.${build.number}.jar" >
     	<fileset dir="${build}"/>
     </jar>
     <delete dir="${build}"/>
