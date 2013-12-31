@@ -2,7 +2,7 @@
 <project name="bukkit-SshConsole" default="dist" basedir=".">
 
 	<property name="project" value="SshConsole"/>
-    <property name="version" value="0.1"/>
+    <property name="version" value="0.2"/>
     <property name="src" value="src"/>
 	<property name="build" value="build"/>
     <property name="dist"  value="dist"/>
