@@ -71,9 +71,9 @@ implements PasswordAuthenticator, CommandFactory, Factory
         {
             return true;
         }
-        if(getConfig().isString((new StringBuilder("user.")).append(username).toString()))
+        if(getConfig().isString("user."+username))
         {
-            return getConfig().getString((new StringBuilder("user.")).append(username).toString(), "#*+!$%&").equalsIgnoreCase(password);
+            return getConfig().getString("user."+username, "#*+!$%&").equalsIgnoreCase(password);
         } else
         {
             return false;

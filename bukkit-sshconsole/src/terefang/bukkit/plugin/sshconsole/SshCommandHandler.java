@@ -4,12 +4,20 @@ import com.google.common.base.Charsets;
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+import java.util.StringTokenizer;
+import java.util.Vector;
 import java.util.logging.*;
 import jline.ConsoleReader;
 import org.apache.sshd.server.*;
 import org.apache.sshd.server.channel.ChannelSession;
 import org.apache.sshd.server.session.ServerSession;
 import org.bukkit.Bukkit;
+
+import terefang.bukkit.scripting.JvmScriptFactory;
+import terefang.bukkit.scripting.impl.AbstractJvmScript;
 
 public class SshCommandHandler extends Handler
 implements Runnable, Command, SessionAware, ChannelSessionAware
@@ -147,6 +155,11 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
             handleConsoleCommand(line.substring(1));
         } 
         else
+        if(line.charAt(0) == '$')
+        {
+            handleScriptCommand(line.substring(1));
+        } 
+        else
         if(line.charAt(0) == '!')
         {
             handleSayCommand(line.substring(1));
@@ -166,7 +179,138 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
     {
         println("Use '.exit' to Exit.");
         println("Use '/<command> <args...>' for server commands.");
+        println("Use '$<file> <args...>' for script commands.");
         println("Use '!...' to Shout.\n");
+    }
+
+    private static String[] translateCommandline(final String toProcess) 
+    {
+        if (toProcess == null || toProcess.length() == 0) {
+            // no command? no string
+            return new String[0];
+        }
+
+        // parse with a simple finite state machine
+
+        final int normal = 0;
+        final int inQuote = 1;
+        final int inDoubleQuote = 2;
+        int state = normal;
+        StringTokenizer tok = new StringTokenizer(toProcess, "\"\' ", true);
+        Vector v = new Vector();
+        StringBuffer current = new StringBuffer();
+        boolean lastTokenHasBeenQuoted = false;
+
+        while (tok.hasMoreTokens()) {
+            String nextTok = tok.nextToken();
+            switch (state) {
+            case inQuote:
+                if ("\'".equals(nextTok)) {
+                    lastTokenHasBeenQuoted = true;
+                    state = normal;
+                } else {
+                    current.append(nextTok);
+                }
+                break;
+            case inDoubleQuote:
+                if ("\"".equals(nextTok)) {
+                    lastTokenHasBeenQuoted = true;
+                    state = normal;
+                } else {
+                    current.append(nextTok);
+                }
+                break;
+            default:
+                if ("\'".equals(nextTok)) {
+                    state = inQuote;
+                } else if ("\"".equals(nextTok)) {
+                    state = inDoubleQuote;
+                } else if (" ".equals(nextTok)) {
+                    if (lastTokenHasBeenQuoted || current.length() != 0) {
+                        v.addElement(current.toString());
+                        current = new StringBuffer();
+                    }
+                } else {
+                    current.append(nextTok);
+                }
+                lastTokenHasBeenQuoted = false;
+                break;
+            }
+        }
+
+        if (lastTokenHasBeenQuoted || current.length() != 0) {
+            v.addElement(current.toString());
+        }
+
+        if (state == inQuote || state == inDoubleQuote) {
+            throw new IllegalArgumentException("Unbalanced quotes in "
+                    + toProcess);
+        }
+
+        String[] args = new String[v.size()];
+        v.copyInto(args);
+        return args;
+    }
+    
+    private synchronized void handleScriptCommand(String line)
+    throws InterruptedIOException
+    {
+		File sDir = new File(sshdPlugin.getDataFolder(), "scripts");
+		sDir.mkdirs();
+
+		if(line.length()==0)
+    	{
+    		String[] scripts = sDir.list(new FilenameFilter() 
+    		{
+				@Override
+				public boolean accept(File dir, String name) 
+				{
+					return new File(dir,name).isFile();
+				}
+			});
+			println("----");
+    		for(String x : scripts)
+    		{
+    			println("> "+x);
+    		}
+			println("----");
+    	}
+		else
+		{
+			String script = line.trim();
+			int off = script.indexOf(' ');
+			if(off>0)
+			{
+				script = script.substring(0,off);
+				line = line.substring(off).trim();
+			}
+			
+			File sFile = new File(sDir,script);
+			if(sFile.isFile())
+			{
+				try 
+				{
+					AbstractJvmScript xscript = JvmScriptFactory.create("bsh");
+					xscript.initScript(new Properties(), sFile);
+					Map<String, Object> context = new HashMap();
+					context.put("CONSOLE", reader);
+					context.put("PLUGIN", sshdPlugin);
+					context.put("SERVER", sshdPlugin.getServer());
+					xscript.runScript(context, translateCommandline(line), true);
+				} 
+				catch (Exception xe) 
+				{
+					println(xe.getMessage());
+					for(StackTraceElement ste : xe.getStackTrace())
+					{
+						println("c/"+ste.getClassName()+
+							",m/"+ste.getMethodName()+
+							",f/"+ste.getFileName()+
+							":"+ste.getLineNumber());
+					}
+				}
+			}
+		}
     }
 
     private synchronized void handleConsoleCommand(String line)
