@@ -1,6 +1,9 @@
 package terefang.bukkit.scripting.impl;
 
 import java.io.File;
+import java.io.Reader;
+import java.io.Writer;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
@@ -9,6 +12,8 @@ import java.util.logging.Logger;
 
 import javax.script.Bindings;
 import javax.script.CompiledScript;
+import javax.script.ScriptContext;
+import javax.script.SimpleScriptContext;
 
 import org.bukkit.Bukkit;
 
@@ -64,12 +69,24 @@ public class BeanScript extends AbstractJvmScript
 			Bindings l_bind = l_engine.createBindings();
 			for(Entry<String,Object> e : context.entrySet())
 			{
-				l_bind.put(e.getKey(), e.getValue());	
+				if(e.getValue()!=null)
+				{
+					l_bind.put(e.getKey(), e.getValue());
+				}
+				else
+				{
+					log.log(Level.WARNING, "binding '"+e.getKey()+"' of file "+scriptFile+" is NULL");
+				}
 			}
 			l_bind.put("args", args);	
 			
-			Object ret = l_script.eval(l_bind);
+			ScriptContext sc = new SimpleScriptContext();
+			sc.setBindings(l_bind, ScriptContext.GLOBAL_SCOPE);
+			
+			Object ret = l_script.eval(sc);
+			
 			l_bind.clear();
+			
 			return ret;
 		}
 		catch(Exception xe)

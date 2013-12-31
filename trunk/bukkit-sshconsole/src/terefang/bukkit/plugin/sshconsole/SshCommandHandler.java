@@ -284,6 +284,10 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
 				script = script.substring(0,off);
 				line = line.substring(off).trim();
 			}
+			else
+			{
+				line = "";
+			}
 			
 			File sFile = new File(sDir,script);
 			if(sFile.isFile())
