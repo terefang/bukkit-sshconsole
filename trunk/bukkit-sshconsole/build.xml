@@ -2,47 +2,59 @@
 <project name="bukkit-SshConsole" default="dist" basedir=".">
 
 	<property name="project" value="SshConsole"/>
-    <property name="version" value="0.2"/>
+    <property name="version" value="0.3"/>
+    <property name="bukkit.version" value="1.6.4-R2.0"/>
     <property name="src" value="src"/>
 	<property name="build" value="build"/>
     <property name="dist"  value="dist"/>
     <property name="lib"  value="lib"/>
 
-	<path id="that-classpath">
-	        <pathelement location="${src}"/>
-	        <pathelement location="${build}"/>
-		<fileset dir="${lib}">
-	            <include name="**/*.jar"/>
-	        </fileset>
-	</path>	
+	<target name="init">
+	    <mkdir dir="${build}/" />
+	    <mkdir dir="${build}/${bukkit.version}/" />
+	</target>
+
+    <target name="compile" depends="init">
+        <path id="that-classpath">
+            <pathelement location="${src}"/>
+            <pathelement location="${build}/${bukkit.version}"/>
+            <fileset dir="${lib}">
+                <include name="*.jar"/>
+                <include name="${bukkit.version}/*.jar"/>
+            </fileset>
+        </path>
+  	    <javac srcdir="${src}" destdir="${build}/${bukkit.version}/" classpathref="that-classpath" target="1.5"/>
+    </target>
+
+    <target name="dist" depends="compile">
+        <buildnumber/>
+
+        <property name="plugin.version" value="${version}.build${build.number}-CB${bukkit.version}"/>
+
+  	    <mkdir dir="${dist}"/>
 	
-  <target name="init">
-    <buildnumber/>
-    <mkdir dir="${build}"/>
-  </target>
-
-  <target name="compile" depends="init">
-    <javac srcdir="${src}" destdir="${build}" classpathref="that-classpath" target="1.5"/>
-  </target>
-
-  <target name="dist" depends="compile">
-    <mkdir dir="${dist}"/>
-	
-  	<unzip dest="${build}">
-		<fileset dir="${lib}">
-			<include name="*.jar" />
-		</fileset>    
-	</unzip>
+      	<unzip dest="${build}/${bukkit.version}/">
+            <fileset dir="${lib}">
+                <include name="*.jar" />
+            </fileset>    
+    	</unzip>
   	
-  	<deltree dir="${build}/META-INF"/>
+  	    <deltree dir="${build}/${bukkit.version}/META-INF"/>
   	
-  	<copy file="plugin.yml.tmpl" tofile="${build}/plugin.yml" />
-  	<replace file="${build}/plugin.yml" token="@VERSION@" value="${version}.${build.number}"/>
-
-    <jar jarfile="${dist}/${project}-${version}.${build.number}.jar" >
-    	<fileset dir="${build}"/>
-    </jar>
-    <delete dir="${build}"/>
-  </target>
+      	<copy file="plugin.yml.tmpl" tofile="${build}/${bukkit.version}/plugin.yml" />
+      	<replace file="${build}/${bukkit.version}/plugin.yml" token="@VERSION@" value="${plugin.version}"/>
+    
+    	<copy overwrite="true" todir="${build}/${bukkit.version}/">
+            <fileset dir="${src}">
+                <include name="**/*.properties" />
+            </fileset>    
+    	</copy>
+    	
+        <jar jarfile="${dist}/${project}-${plugin.version}.jar" >
+        	<fileset dir="${build}/${bukkit.version}"/>
+        </jar>
+    	
+        <delete dir="${build}/${bukkit.version}"/>
+    </target>
 
 </project>

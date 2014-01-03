@@ -2,14 +2,18 @@ package terefang.bukkit.plugin.sshconsole;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.security.PublicKey;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
 import org.apache.sshd.SshServer;
 import org.apache.sshd.common.Factory;
 import org.apache.sshd.common.io.mina.MinaServiceFactory;
 import org.apache.sshd.server.*;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.server.session.ServerSession;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Server;
 import org.bukkit.configuration.Configuration;
@@ -17,11 +21,15 @@ import org.bukkit.configuration.ConfigurationOptions;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import org.apache.mina.util.Base64;
+
+import org.jasypt.digest.StandardStringDigester;
+
 public class SshConsolePlugin 
 extends JavaPlugin
-implements PasswordAuthenticator, CommandFactory, Factory
+implements PasswordAuthenticator, CommandFactory, Factory, PublickeyAuthenticator
 {
-
+	StandardStringDigester pwdenc = new StandardStringDigester();
     public static final String PLUGIN_TAG = "[SshConsole]";
     public static final String PLUGIN_NAME = "SshConsole";
     SshServer sshd = null;
@@ -30,6 +38,15 @@ implements PasswordAuthenticator, CommandFactory, Factory
     public SshConsolePlugin()
     {
         sshd = null;
+        
+        pwdenc.setAlgorithm("SHA1");
+        pwdenc.setInvertPositionOfPlainSaltInEncryptionResults(true);
+        pwdenc.setInvertPositionOfSaltInMessageBeforeDigesting(true);
+        pwdenc.setIterations(1);
+        pwdenc.setPrefix("{SSHA}");
+        pwdenc.setSaltSizeBytes(8);
+        pwdenc.setStringOutputType("hexadecimal");
+        pwdenc.initialize();
     }
 
     public static void main(String args[])
@@ -39,7 +56,14 @@ implements PasswordAuthenticator, CommandFactory, Factory
         SshServer sshd = SshServer.setUpDefaultServer();
         sshd.setPort(25522);
         sshd.setKeyPairProvider(((org.apache.sshd.common.KeyPairProvider) (new SimpleGeneratorHostKeyProvider("hostkey.ser"))));
-        sshd.setPasswordAuthenticator(((PasswordAuthenticator) (plugin)));
+        sshd.setPasswordAuthenticator( new PasswordAuthenticator() 
+        {
+			@Override
+			public boolean authenticate(String arg0, String arg1, ServerSession arg2) 
+			{
+				return true;
+			}
+		});
         sshd.setShellFactory(((Factory) (plugin)));
         sshd.setCommandFactory(((CommandFactory) (plugin)));
         sshd.start();
@@ -65,29 +89,130 @@ implements PasswordAuthenticator, CommandFactory, Factory
         return ((Command) (sch));
     }
 
+	@Override
     public boolean authenticate(String username, String password, ServerSession ssession)
     {
+        reloadConfig();
+
         if(getConfig().getBoolean("public-admin", false))
         {
             return true;
         }
-        if(getConfig().isString("user."+username))
+        
+        if(verifyUserPassword(username, password))
         {
-            return getConfig().getString("user."+username, "#*+!$%&").equalsIgnoreCase(password);
-        } else
-        {
-            return false;
-        }
+            return true;
+        } 
+
+        return false;
     }
 
+	@Override
+	public boolean authenticate(String username, PublicKey pKey, ServerSession ssession) 
+	{
+        reloadConfig();
+
+        if(verifyUserKey(username, pKey))
+        {	
+            return true;
+        } 
+
+        return false;
+	}
+
+	public void setUserPassword(String username, String password, boolean encrypt)
+	{
+		if(encrypt)
+		{
+			getConfig().set("user."+username, pwdenc.digest(password));
+		}
+		else
+		{
+			getConfig().set("user."+username, "{plain}"+password);
+		}
+	}
+	
+	public void setUserKey(String username, PublicKey pKey, boolean encrypt)
+	{
+		String suffix = ("/"+pKey.getAlgorithm()+"/"+pKey.getFormat())
+				.replace('.', '-')
+				.replace(':', '-');
+
+		if(encrypt)
+		{
+			String bKey = new String(Base64.encodeBase64(pKey.getEncoded()));
+			getConfig().set("user."+username+suffix, pwdenc.digest(bKey));
+		}
+		else
+		{
+			String eKey = new BigInteger(pKey.getEncoded()).toString(36).toUpperCase();
+			getConfig().set("user."+username+suffix, "{raw}"+eKey);
+		}
+	}
+	
+	public boolean verifyUserPassword(String username, String password)
+	{
+		if(!getConfig().isString("user."+username))
+		{
+			return false;
+		}
+		
+		if(getConfig().getString("user."+username, "#*+!$%&").equalsIgnoreCase("{plain}"+password))
+		{
+			return true;
+		}
+
+		if(pwdenc.matches(password, getConfig().getString("user."+username, "#*+!$%&")))
+		{
+			return true;
+		}
+		
+		return false;
+	}
+	
+	public boolean verifyUserKey(String username, PublicKey pKey)
+	{
+		String suffix = ("/"+pKey.getAlgorithm()+"/"+pKey.getFormat())
+				.replace('.', '-')
+				.replace(':', '-');
+		
+		if(!getConfig().isString("user."+username+suffix))
+		{
+			return false;
+		}
+		
+		String eKey = new BigInteger(pKey.getEncoded()).toString(36).toUpperCase();
+
+		if(getConfig().getString("user."+username+suffix, "#*+!$%&").equalsIgnoreCase("{raw}"+eKey))
+		{
+			return true;
+		}
+
+		if(pwdenc.matches(eKey, getConfig().getString("user."+username+suffix, "#*+!$%&")))
+		{
+			return true;
+		}
+		
+		String bKey = new String(Base64.encodeBase64(pKey.getEncoded()));
+
+		if(pwdenc.matches(bKey, getConfig().getString("user."+username+suffix, "#*+!$%&")))
+		{
+			return true;
+		}
+    	info("user '"+username+"' not found for suffix '"+suffix+"' on key '{raw}"+eKey+"'");
+    	info("user '"+username+"' not found for suffix '"+suffix+"' on key '{b64}"+bKey+"'");
+		
+		return false;
+	}
+	
     public void log(Level l, String msg, Throwable t)
     {
-        getLogger().log(l, (new StringBuilder("[SshConsole] ")).append(msg).toString(), t);
+        getLogger().log(l, msg, t);
     }
 
     public void log(Level l, String msg)
     {
-        getLogger().log(l, (new StringBuilder("[SshConsole] ")).append(msg).toString());
+        getLogger().log(l, msg);
     }
 
     public void info(String msg, Throwable t)
@@ -124,22 +249,26 @@ implements PasswordAuthenticator, CommandFactory, Factory
     {
         getDataFolder().mkdirs();
         loadConfiguration();
-        sshd = SshServer.setUpDefaultServer();
-        sshd.setPort(getConfig().getInt("port"));
-        if(!getConfig().getBoolean("force-nio2"))
-        {
-            sshd.setIoServiceFactory(((org.apache.sshd.common.io.IoServiceFactory) (new MinaServiceFactory())));
-        }
-        sshd.setKeyPairProvider(((org.apache.sshd.common.KeyPairProvider) (new SimpleGeneratorHostKeyProvider((new File(getDataFolder(), "hostkey.ser")).getAbsolutePath()))));
-        sshd.setPasswordAuthenticator(((PasswordAuthenticator) (this)));
-        sshd.setShellFactory(((Factory) (this)));
         try
         {
+            sshd = SshServer.setUpDefaultServer();
+            sshd.setPort(getConfig().getInt("port"));
+            if(!getConfig().getBoolean("force-nio2"))
+            {
+                sshd.setIoServiceFactory(new MinaServiceFactory());
+            }
+            sshd.setKeyPairProvider(new SimpleGeneratorHostKeyProvider(new File(getDataFolder(), "hostkey.ser").getAbsolutePath()));
+            sshd.setPasswordAuthenticator(this);
+            sshd.setPublickeyAuthenticator(this);
+            sshd.setShellFactory(this);
+
             sshd.start();
+            
+            info("started on *:"+sshd.getPort());
         }
-        catch(IOException e)
+        catch(Exception e)
         {
-            error("starting ssh-listener", ((Throwable) (e)));
+            error("starting ssh-listener", e);
         }
     }
 
@@ -150,9 +279,9 @@ implements PasswordAuthenticator, CommandFactory, Factory
             config = ((Configuration) (getConfig()));
         }
         config.options().copyDefaults(true);
-        getConfig().set("force-nio2", ((Object) (Boolean.valueOf(getConfig().getBoolean("force-nio2", false)))));
-        getConfig().set("public-admin", ((Object) (Boolean.valueOf(getConfig().getBoolean("public-admin", false)))));
-        getConfig().set("port", ((Object) (Integer.valueOf(getConfig().getInt("port", 25522)))));
+        getConfig().set("force-nio2", getConfig().getBoolean("force-nio2", false));
+        getConfig().set("public-admin", getConfig().getBoolean("public-admin", false));
+        getConfig().set("port", getConfig().getInt("port", 25522));
         saveConfig();
     }
 
