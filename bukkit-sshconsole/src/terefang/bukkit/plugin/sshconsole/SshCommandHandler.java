@@ -1,6 +1,10 @@
 package terefang.bukkit.plugin.sshconsole;
 
+import bsh.EvalError;
+import bsh.Interpreter;
+
 import com.google.common.base.Charsets;
+
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -10,12 +14,15 @@ import java.util.Properties;
 import java.util.StringTokenizer;
 import java.util.Vector;
 import java.util.logging.*;
-import jline.ConsoleReader;
+
 import org.apache.sshd.server.*;
 import org.apache.sshd.server.channel.ChannelSession;
 import org.apache.sshd.server.session.ServerSession;
 import org.bukkit.Bukkit;
 
+import terefang.jline.ConsoleReader;
+
+import terefang.bukkit.plugin.sshconsole.util.PrintStreamToWriter;
 import terefang.bukkit.scripting.JvmScriptFactory;
 import terefang.bukkit.scripting.impl.AbstractJvmScript;
 
@@ -49,7 +56,7 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
 
     public void run()
     {
-        try
+        try 
         {
             pwriter = new OutputStreamWriter(out, Charsets.UTF_8) 
             {
@@ -85,6 +92,19 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
                     write(str.toCharArray(), off, len);
                 }
 
+				@Override
+				public void write(char[] cbuf) 
+				throws IOException 
+				{
+					write(cbuf, 0, cbuf.length);
+				}
+
+				@Override
+				public void write(String str) 
+				throws IOException 
+				{
+					write(str, 0, str.length());
+				}
             };
             
             pin = new FilterInputStream(in) 
@@ -117,7 +137,7 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
 	            String line;
 	            while((line = reader.readLine()) != null) 
 	            {
-	                handleUserInput(line.trim());
+	                handleUserInput(line);
 	            }
 	        }
 	        catch(InterruptedIOException interruptedioexception)
@@ -165,6 +185,11 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
             handleSayCommand(line.substring(1));
         } 
         else
+        if(line.charAt(0) == '&')
+        {
+            handleShellCommand(line.substring(1));
+        } 
+        else
         if(line.charAt(0) == '/')
         {
             handleServerCommand(line.substring(1));
@@ -180,6 +205,7 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
         println("Use '.exit' to Exit.");
         println("Use '/<command> <args...>' for server commands.");
         println("Use '$<file> <args...>' for script commands.");
+        println("Use '&<shell>' enter shell modes (bsh).");
         println("Use '!...' to Shout.\n");
     }
 
@@ -252,6 +278,88 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
         return args;
     }
     
+    private void handleShellCommand(String line)
+    throws InterruptedIOException
+    {
+        line = line.trim();
+        
+    	if("bsh".equalsIgnoreCase(line))
+    	{
+    		handleBshConsole(line);
+    	}
+    }
+    
+    private void handleBshConsole(String line)
+    throws InterruptedIOException
+    {
+    	String oldPrompt = reader.getDefaultPrompt();
+		PrintStreamToWriter pout = new PrintStreamToWriter(pwriter);
+
+		println(">>> starting BeanShell");
+		println("---");
+		// we default to bean shell
+    	Interpreter bsh = new Interpreter();
+    	try
+    	{
+    		bsh.setExitOnEOF(false);
+    		bsh.setErr(pout);
+    		bsh.setOut(pout);
+    		bsh.setShutdownOnExit(true);
+    		
+    		reader.setDefaultPrompt("bsh# ");
+        
+    		String codeLine = "";
+    		while((codeLine = reader.readLine()) != null)
+    		{
+    			codeLine = codeLine.trim();
+    			
+    			if(codeLine.length()>0 && codeLine.charAt(0)!='#')
+    			{
+    				try 
+    				{
+						bsh.eval(codeLine);
+					} 
+    				catch (EvalError ee) 
+    				{
+    					println("bsh/EvalError: "+ee.getErrorText());
+					}
+    				catch (Exception xe) 
+    				{
+    					println(xe.getMessage());
+    					for(StackTraceElement ste : xe.getStackTrace())
+    					{
+    						println("c/"+ste.getClassName()+
+    							",m/"+ste.getMethodName()+
+    							",f/"+ste.getFileName()+
+    							":"+ste.getLineNumber());
+    					}
+					}
+    			}
+    			else
+    			if("#exit".equalsIgnoreCase(codeLine))
+    			{
+    				break;
+    			}
+    		}
+    	} 
+		catch (Exception xe) 
+		{
+			println(xe.getMessage());
+			for(StackTraceElement ste : xe.getStackTrace())
+			{
+				println("c/"+ste.getClassName()+
+					",m/"+ste.getMethodName()+
+					",f/"+ste.getFileName()+
+					":"+ste.getLineNumber());
+			}
+		}
+    	finally
+    	{
+    		println(">>> ended BeanShell");
+    		reader.setDefaultPrompt(oldPrompt);
+    	}
+    }
+
     private synchronized void handleScriptCommand(String line)
     throws InterruptedIOException
     {
@@ -330,7 +438,7 @@ implements Runnable, Command, SessionAware, ChannelSessionAware
     {
         try
         {
-            Bukkit.dispatchCommand(((org.bukkit.command.CommandSender) (Bukkit.getConsoleSender())), line);
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), line);
         }
         catch(Exception xe)
         {
